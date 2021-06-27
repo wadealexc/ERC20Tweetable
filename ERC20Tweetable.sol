@@ -22,51 +22,45 @@ contract ERC20Tweetable {
         assembly {
             
             /**
-             * Max calldata size is transferFrom(addr, addr, uint)
-             * selector + params = 4 + 3*32 = 0x64
-             * 
-             * This copy places function selector at 0x20 - 4 = 0x1c
-             * I can access the selector using mload(0)
-             * 
-             * The other parameters are copied to memory, starting at 0x20
+             * Target memory layout:
+             * 0x00: [param 0]
+             * 0x20: [caller]
+             * 0x40: [param 0]
+             * 0x60: [param 1]
+             * 0x80: [param 2]
              */
-            calldatacopy(0x1C, 0, calldatasize())
 
-            // Place caller at 0x80
-            mstore(0x80, caller())
+            // Copy p0, p1, p2 to mem[0x00:0x60)
+            calldatacopy(0, 4, calldatasize())
 
-            // Second copy places parameters again, starting at 0xA0
-            calldatacopy(0xA0, 4, calldatasize())
+            // Place caller at 0x20
+            mstore(0x20, caller())
 
-            // Overwrite 0xC0 with caller
-            mstore(0xC0, caller())
+            // Copy p0, p1, p2 to mem[0x40:0xA0)
+            calldatacopy(0x40, 4, calldatasize())
 
             // Get first byte of selector
-            let sB := byte(28, mload(0))
+            let func := byte(0, calldataload(0))
 
-            // Hash first param
-            let shaP0 := keccak256(0x20, 32)
+            // Hash first param (we need this later)
+            let shaP0 := keccak256(0x00, 32)
 
             /**
-             * Set up stack assuming the call is transfer or approve:
+             * Check whether func is any of the state-changing methods:
              *
-             * Current memory layout:
-             * 0x00: [return value]
-             * 0x20: [param 0]
-             * 0x40: [param 1]
-             * 0x60: [param 2]
-             * 0x80: [caller]
-             * 0xA0: [param 0]
-             * 0xC0: [caller]
-             * 0xE0: [param 2]
+             * transfer(dest, amt)
+             * transferFrom(from, dest, amt)
+             * approve(dest, amt)
+             * 
+             * Only check the first byte, since they're all unique
              */
 
-            // 1 if sB is transfer; 0 otherwise
-            let isTransfer := eq(sB, 0xA9)
-            // 1 if sB is transferFrom; 0 otherwise
-            let isTransferFrom := eq(sB, 0x23)
-            // 1 if sB is approve; 0 otherwise
-            let isApprove := eq(sB, 0x09)
+            // 1 if func is transfer; 0 otherwise
+            let isTransfer := eq(func, 0xA9)
+            // 1 if func is transferFrom; 0 otherwise
+            let isTransferFrom := eq(func, 0x23)
+            // 1 if func is approve; 0 otherwise
+            let isApprove := eq(func, 0x09)
 
             {
                 /**
@@ -76,37 +70,36 @@ contract ERC20Tweetable {
                  * token.totalSupply()
                  */
             
-                // 1 if sB is allowance; 0 otherwise
-                let isAllowance := eq(sB, 0xDD)
-                // 1 if sB is balanceOf; 0 otherwise
-                let isBalanceOf := eq(sB, 0x70)
-                // 1 if sB is totalSupply; 0 otherwise
-                let isTotalSupply := eq(sB, 0x18)
-                
-                // ret will be 0 if sB is none of these functions
-                // otherwise, ret will have some nonzero value
-                let ret := or(mul(isTotalSupply, 3),
+                // 1 if func is allowance; 0 otherwise
+                let isAllowance := eq(func, 0xDD)
+                // 1 if func is balanceOf; 0 otherwise
+                let isBalanceOf := eq(func, 0x70)
+                // 1 if func is totalSupply; 0 otherwise
+                let isTotalSupply := eq(func, 0x18)
+
+                /**
+                 * Calc readSlot:
+                 * allowance: sha(p0, p1)
+                 * balanceOf: sha(p0)
+                 * totalSupply: 3
+                 * other methods: 0
+                 */
+                let readSlot := or(
+                    mul(3, isTotalSupply),
                     or(
-                        mul(isAllowance, keccak256(0x20, 64)),
-                        mul(isBalanceOf, shaP0)
+                        mul(keccak256(0x40, 64), isAllowance),
+                        mul(shaP0, isBalanceOf)
                     )
                 )
 
-                // if sB is a view function, load slot and return value
-                if ret {
-                    doRet(sload(ret))
+                // if func is a view function, load slot and return value
+                if readSlot {
+                    doRet(sload(readSlot))
                 }
             }
 
             // get rid of unneeded vars
-            pop(sB)
-
-            /**
-             * Handle state changing functions:
-             * token.transfer(dest, amt)
-             * token.transferFrom(from, dest, amt)
-             * token.approve(dest, amt)
-             */
+            pop(func)
 
             /**
              * Set transferAmt:
@@ -115,8 +108,8 @@ contract ERC20Tweetable {
              * approve: 0
              */
             let transferAmt := or(
-                mul(mload(0x40), isTransfer),
-                mul(mload(0x60), isTransferFrom)
+                mul(mload(0x60), isTransfer),
+                mul(mload(0x80), isTransferFrom)
             )
 
             /**
@@ -128,8 +121,8 @@ contract ERC20Tweetable {
             let approvalSlot := or(
                 mul(4, isTransfer),
                 or(
-                    mul(keccak256(0xA0, 64), isTransferFrom),
-                    mul(keccak256(0x80, 64), isApprove)
+                    mul(keccak256(0x00, 64), isTransferFrom),
+                    mul(keccak256(0x20, 64), isApprove)
                 )
             )
 
@@ -143,7 +136,7 @@ contract ERC20Tweetable {
                 mul(sload(approvalSlot), isTransfer),
                 or(
                     mul(sub(sload(approvalSlot), transferAmt), isTransferFrom),
-                    mul(mload(0x40), isApprove)
+                    mul(mload(0x60), isApprove)
                 )
             )
 
@@ -154,7 +147,7 @@ contract ERC20Tweetable {
              * approve: 0
              */
             let fromBalSlot := or(
-                mul(keccak256(0x80, 32), isTransfer),
+                mul(keccak256(0x20, 32), isTransfer),
                 mul(shaP0, isTransferFrom)
             )
 
@@ -166,7 +159,7 @@ contract ERC20Tweetable {
              */
             let toBalSlot := or(
                 mul(shaP0, isTransfer),
-                mul(keccak256(0x40, 32), isTransferFrom)
+                mul(keccak256(0x60, 32), isTransferFrom)
             )
 
             /**
@@ -184,8 +177,8 @@ contract ERC20Tweetable {
              * approve: p1
              */
             let logAmtPtr := or(
-                mul(0x40, or(isTransfer, isApprove)),
-                mul(0x60, isTransferFrom)
+                mul(0x60, or(isTransfer, isApprove)),
+                mul(0x80, isTransferFrom)
             )
 
             /**
@@ -196,7 +189,7 @@ contract ERC20Tweetable {
              */
             let logFromParam := or(
                 mul(caller(), or(isTransfer, isApprove)),
-                mul(mload(0x20), isTransferFrom)
+                mul(mload(0x00), isTransferFrom)
             )
 
             /**
@@ -206,8 +199,8 @@ contract ERC20Tweetable {
              * approve: p0
              */
             let logToParam := or(
-                mul(mload(0x20), or(isTransfer, isApprove)),
-                mul(mload(0x40), isTransferFrom)
+                mul(mload(0x00), or(isTransfer, isApprove)),
+                mul(mload(0x60), isTransferFrom)
             )
 
             // Check balance/allowance requirements
@@ -230,6 +223,16 @@ contract ERC20Tweetable {
             function doRet(val) {
                 mstore(0, val)
                 return(0, 32)
+            }
+
+            function OR(x0, x1, y0, y1, z0, z1) -> res {
+                res := or(
+                    mul(x0, x1),
+                    or(
+                        mul(y0, y1),
+                        mul(z0, z1)
+                    )
+                )
             }
         }
     }
