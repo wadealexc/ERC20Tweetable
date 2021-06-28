@@ -21,7 +21,7 @@ contract ERC20Tweetable {
 
     fallback () external {
         assembly {
-            
+
             /**
              * Target memory layout:
              * 0x00: [param 0]
@@ -117,6 +117,9 @@ contract ERC20Tweetable {
                 )
             )
 
+            // We reference this 3 times, so place on stack
+            let loadApprSlot := sload(approvalSlot)
+
             /**
              * Set approvalAmt:
              * transfer: sload(approvalSlot)
@@ -124,9 +127,9 @@ contract ERC20Tweetable {
              * approve: p1
              */
             let approvalAmt := or(
-                mul(sload(approvalSlot), isTransfer),
+                mul(loadApprSlot, isTransfer),
                 or(
-                    mul(sub(sload(approvalSlot), transferAmt), isTransferFrom),
+                    mul(sub(loadApprSlot, transferAmt), isTransferFrom),
                     mul(p1, isApprove)
                 )
             )
@@ -153,50 +156,12 @@ contract ERC20Tweetable {
                 mul(keccak256(0x60, 32), isTransferFrom)
             )
 
-            /**
-             * Set eventSigSlot:
-             * transfer: 1
-             * transferFrom: 1
-             * approve: 0
-             */
-            let eventSigSlot := or(isTransfer, isTransferFrom)
-
-            /**
-             * Set logAmtPtr:
-             * transfer: p1
-             * transferFrom: p2
-             * approve: p1
-             */
-            let logAmtPtr := or(
-                mul(0x60, or(isTransfer, isApprove)),
-                mul(0x80, isTransferFrom)
-            )
-
-            /**
-             * Set logFromParam:
-             * transfer: caller
-             * transferFrom: p0
-             * approve: caller
-             */
-            let logFromParam := or(
-                mul(caller(), or(isTransfer, isApprove)),
-                mul(mload(0x00), isTransferFrom)
-            )
-
-            /**
-             * Set logToParam:
-             * transfer: p0
-             * transferFrom: p1
-             * approve: p0
-             */
-            let logToParam := or(
-                mul(mload(0x00), or(isTransfer, isApprove)),
-                mul(p1, isTransferFrom)
-            )
+            // We reference this 3 times, so place on stack
+            let isTransferOrApprove := or(isTransfer, isApprove)
 
             // Check balance/allowance requirements
             if or(
-                lt(sload(approvalSlot), transferAmt), 
+                lt(loadApprSlot, transferAmt), 
                 lt(sload(fromBalSlot), transferAmt)
             ) {
                 revert(0, 0)
@@ -210,8 +175,23 @@ contract ERC20Tweetable {
                 sstore(toBalSlot, add(sload(toBalSlot), transferAmt)) // Update to balance
                 sstore(approvalSlot, approvalAmt) // Update allowance
 
-                // Log Transfer or Approval events
-                log3(logAmtPtr, 32, sload(eventSigSlot), logFromParam, logToParam)
+                // Log Transfer or Approval event
+                log3(
+                    or(
+                        mul(0x60, isTransferOrApprove),
+                        mul(0x80, isTransferFrom)
+                    ), 
+                    32, 
+                    sload(or(isTransfer, isTransferFrom)), 
+                    or(
+                        mul(caller(), isTransferOrApprove),
+                        mul(mload(0x00), isTransferFrom)
+                    ), 
+                    or(
+                        mul(mload(0x00), isTransferOrApprove),
+                        mul(p1, isTransferFrom)
+                    )
+                )
 
                 // Set readSlot to 2 to return "true"
                 readSlot := 2
