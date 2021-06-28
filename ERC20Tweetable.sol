@@ -6,8 +6,8 @@ contract ERC20Tweetable {
     constructor () {
         assembly {
             sstore(2, 1) // Store "true" at slot 2
-            sstore(3, 1000) // Set totalSupply at slot 0
-            sstore(4, not(0)) // Set max uint at slot 3
+            sstore(3, 1000) // Set totalSupply at slot 3
+            sstore(4, not(0)) // Set max uint at slot 4
 
             // give msg.sender total balance
             mstore(0, caller())
