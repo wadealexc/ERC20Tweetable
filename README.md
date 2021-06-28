@@ -115,4 +115,4 @@ If this doesn't deter you, you can use [`Deployer.sol`](/Deployer.sol), which ta
 2IHYq!&l]A+At+*"COJR?iW&l!#f5f?iV<W?r:=2K+q]<KG7f#KbRp6L(o=C@,6SP?pJ*b+9E?e(l&f5!s09j@";)UKSBOEJm^iO+<U`=?pJ*"+9E@5?j$NIJ5h2X!euA\!s09oJcZaCM?8TA+CH<7!Z-W"+CJS"!f;j;(PdkaL4`G:LP??V'k!G2?iXR7rEG$l'k#QnL4`G-K2mYX;uqSNK8*B_MunQ<!)We6MI6E]!eN30(Q47h<+$i.@"8<4?sj$PUL4.i:g8]S?iX)4+CG3@
 ```
 
-And that's just short enough for a [tweet](TODO)!
+And that's just short enough for a [tweet](https://twitter.com/wadeAlexC/status/1409608216103854080)!
