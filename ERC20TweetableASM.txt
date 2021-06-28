@@ -21,8 +21,15 @@ object "ERC20Tweetable" {
         // Get first byte of selector
         let func := byte(0, calldataload(0))
 
-        // Hash first param (we need this later)
+        /**
+         * These two values are used 3 times each in the following code,
+         * so it's more efficient to put them on the stack now and spend
+         * a DUP instruction for each reference below.
+         * shaP0: hash of param 0
+         * p1: param 1
+         */
         let shaP0 := keccak256(0x00, 32)
+        let p1 := mload(0x60)
 
         /**
          * Check whether func is any of the state-changing methods:
@@ -41,41 +48,27 @@ object "ERC20Tweetable" {
         // 1 if func is approve; 0 otherwise
         let isApprove := eq(func, 0x09)
 
-        {
-            /**
-             * Handle view functions:
-             * token.balanceOf(owner)
-             * token.allowance(owner, spender)
-             * token.totalSupply()
-             */
-        
-            // 1 if func is allowance; 0 otherwise
-            let isAllowance := eq(func, 0xDD)
-            // 1 if func is balanceOf; 0 otherwise
-            let isBalanceOf := eq(func, 0x70)
-            // 1 if func is totalSupply; 0 otherwise
-            let isTotalSupply := eq(func, 0x18)
+        /**
+         * Handle view functions:
+         * token.balanceOf(owner)
+         * token.allowance(owner, spender)
+         * token.totalSupply()
+         */
 
-            /**
-             * Calc readSlot:
-             * allowance: sha(p0, p1)
-             * balanceOf: sha(p0)
-             * totalSupply: 3
-             * other methods: 0
-             */
-            let readSlot := or(
-                mul(3, isTotalSupply),
-                or(
-                    mul(keccak256(0x40, 64), isAllowance),
-                    mul(shaP0, isBalanceOf)
-                )
+        /**
+         * Calc readSlot:
+         * allowance: sha(p0, p1)
+         * balanceOf: sha(p0)
+         * totalSupply: 3
+         * other methods: 0
+         */
+        let readSlot := or(
+            mul(3, eq(func, 0x18)), // isTotalSupply := eq(func, 0x18)
+            or(
+                mul(keccak256(0x40, 64), eq(func, 0xDD)), // isAllowance := eq(func, 0xDD)
+                mul(shaP0, eq(func, 0x70)) // isBalanceOf := eq(func, 0x70)
             )
-
-            // if func is a view function, load slot and return value
-            if readSlot {
-                doRet(sload(readSlot))
-            }
-        }
+        )
 
         /**
          * Set transferAmt:
@@ -84,7 +77,7 @@ object "ERC20Tweetable" {
          * approve: 0
          */
         let transferAmt := or(
-            mul(mload(0x60), isTransfer),
+            mul(p1, isTransfer),
             mul(mload(0x80), isTransferFrom)
         )
 
@@ -112,7 +105,7 @@ object "ERC20Tweetable" {
             mul(sload(approvalSlot), isTransfer),
             or(
                 mul(sub(sload(approvalSlot), transferAmt), isTransferFrom),
-                mul(mload(0x60), isApprove)
+                mul(p1, isApprove)
             )
         )
 
@@ -176,7 +169,7 @@ object "ERC20Tweetable" {
          */
         let logToParam := or(
             mul(mload(0x00), or(isTransfer, isApprove)),
-            mul(mload(0x60), isTransferFrom)
+            mul(p1, isTransferFrom)
         )
 
         // Check balance/allowance requirements
@@ -187,18 +180,23 @@ object "ERC20Tweetable" {
             revert(0, 0)
         }
 
-        sstore(fromBalSlot, sub(sload(fromBalSlot), transferAmt)) // Update from balance
-        sstore(toBalSlot, add(sload(toBalSlot), transferAmt)) // Update to balance
-        sstore(approvalSlot, approvalAmt) // Update allowance
+        /**
+         * If we didn't call a view function, do sstores/log
+         */
+        if iszero(readSlot) {
+            sstore(fromBalSlot, sub(sload(fromBalSlot), transferAmt)) // Update from balance
+            sstore(toBalSlot, add(sload(toBalSlot), transferAmt)) // Update to balance
+            sstore(approvalSlot, approvalAmt) // Update allowance
 
-        // Log Transfer or Approval events
-        log3(logAmtPtr, 32, sload(eventSigSlot), logFromParam, logToParam)
+            // Log Transfer or Approval events
+            log3(logAmtPtr, 32, sload(eventSigSlot), logFromParam, logToParam)
 
-        doRet(1)
-
-        function doRet(val) {
-            mstore(0, val)
-            return(0, 32)
+            // Set readSlot to 2 to return "true"
+            readSlot := 2
         }
-        }
+
+        // Load return value from storage and return
+        mstore(0, sload(readSlot))
+        return(0, 32)
+    }
 }

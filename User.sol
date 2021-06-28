@@ -23,7 +23,7 @@ contract User {
     address targetB = address(0xBADDDADD);
 
     function deploy() internal returns (IERC20) {
-        return IERC20(address(new A()));
+        return IERC20(address(new ERC20Tweetable()));
     }
 
     // should return (1000, 1000)

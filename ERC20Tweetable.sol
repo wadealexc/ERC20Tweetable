@@ -217,6 +217,7 @@ contract ERC20Tweetable {
                 readSlot := 2
             }
 
+            // Load return value from storage and return
             mstore(0, sload(readSlot))
             return(0, 32)
         }
