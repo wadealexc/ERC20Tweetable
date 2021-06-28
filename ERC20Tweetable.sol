@@ -98,9 +98,6 @@ contract ERC20Tweetable {
                 }
             }
 
-            // get rid of unneeded vars
-            pop(func)
-
             /**
              * Set transferAmt:
              * transfer: p1
