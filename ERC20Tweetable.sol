@@ -224,16 +224,6 @@ contract ERC20Tweetable {
                 mstore(0, val)
                 return(0, 32)
             }
-
-            function OR(x0, x1, y0, y1, z0, z1) -> res {
-                res := or(
-                    mul(x0, x1),
-                    or(
-                        mul(y0, y1),
-                        mul(z0, z1)
-                    )
-                )
-            }
         }
     }
 }
